@@ -3,29 +3,31 @@
 [bmscriptsbox.info]
 id = "92c926c7-7450-4503-bbaa-2a5b635eedd7"
 name = "图片格式转换"
-desc = "图片格式转换python脚本、将图片转换为 PNG / JPEG / WEBP / BMP / GIF / ICO / TIFF 格式，支持自定义输出位置"
-version = "1.1.5"
+desc = "基于 ImageMagick 的图片格式转换器 | 支持 200+ 格式互转（含 WEBP/AVIF/HEIC 等现代格式），可自定义输出目录和图片质量（0-100），右键菜单一键转换"
+version = "1.2.0"
+icon = "./imgs/img.png"
 
 [bmscriptsbox.runtime]
 language = "python"
 language_version = ">=3.8"
 entry = "main.py"
-terminal = "never"
+terminal = "inverse"
+binaries = [{name = "imagemagick"}]
 
 [bmscriptsbox.triggers.context_menu]
 enabled = true
 targets = ["files"]
-filters = [".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".ico", ".tiff", ".tif"]
+filters = [".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".ico", ".tiff", ".tif", ".svg", ".pdf", ".psd", ".ai", ".eps", ".avif", ".heic", ".heif", ".jxl", ".raw", ".arw", ".cr2", ".cr3", ".dng", ".nef", ".orf", ".rw2", ".xcf", ".ps", ".pict", ".pcx", ".tga", ".dds", ".exr", ".hdr", ".pbm", ".pgm", ".ppm", ".pnm", ".xpm", ".xbm", ".cur", ".ani", ".wbmp", ".apng", ".mng", ".jng", ".jp2", ".j2c", ".j2k", ".jpc", ".jpm", ".jpt", ".dcx", ".mtv", ".sgi", ".sun", ".ras", ".vicar", ".viff", ".xv", ".fits", ".fts", ".pal", ".uyvy", ".yuv", ".gray", ".cmyk", ".cin", ".dpx", ".fl32", ".rla", ".rle", ".sct", ".pix", ".al", ".ipl", ".miff", ".mpc", ".mvg", ".palm", ".pdb", ".picon", ".pocketmod", ".psb", ".ptif", ".qoi", ".sf3", ".six", ".sixel", ".vda", ".vst", ".wpg", ".x3f", ".xps", ".fff", ".mos", ".mef", ".mrw", ".mdc", ".dcm", ".dicom", ".ora", ".pdfa", ".eps2", ".eps3", ".ept", ".ept2", ".ept3", ".epdf"]
 
 [bmscriptsbox.triggers.shortcut]
 enabled = true
 input_type = "files"
-filters = [".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".ico", ".tiff", ".tif"]
+filters = [".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".ico", ".tiff", ".tif", ".svg", ".pdf", ".psd", ".ai", ".eps", ".avif", ".heic", ".heif", ".jxl", ".raw", ".arw", ".cr2", ".cr3", ".dng", ".nef", ".orf", ".rw2", ".xcf", ".ps", ".pict", ".pcx", ".tga", ".dds", ".exr", ".hdr", ".pbm", ".pgm", ".ppm", ".pnm", ".xpm", ".xbm", ".cur", ".ani", ".wbmp", ".apng", ".mng", ".jng", ".jp2", ".j2c", ".j2k", ".jpc", ".jpm", ".jpt", ".dcx", ".mtv", ".sgi", ".sun", ".ras", ".vicar", ".viff", ".xv", ".fits", ".fts", ".pal", ".uyvy", ".yuv", ".gray", ".cmyk", ".cin", ".dpx", ".fl32", ".rla", ".rle", ".sct", ".pix", ".al", ".ipl", ".miff", ".mpc", ".mvg", ".palm", ".pdb", ".picon", ".pocketmod", ".psb", ".ptif", ".qoi", ".sf3", ".six", ".sixel", ".vda", ".vst", ".wpg", ".x3f", ".xps", ".fff", ".mos", ".mef", ".mrw", ".mdc", ".dcm", ".dicom", ".ora", ".pdfa", ".eps2", ".eps3", ".ept", ".ept2", ".ept3", ".epdf"]
 
 [[bmscriptsbox.inputs]]
 name = "target_paths"
 type = "file"
-exts = [".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".ico", ".tiff", ".tif"]
+exts = [".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".ico", ".tiff", ".tif", ".svg", ".pdf", ".psd", ".ai", ".eps", ".avif", ".heic", ".heif", ".jxl", ".raw", ".arw", ".cr2", ".cr3", ".dng", ".nef", ".orf", ".rw2", ".xcf", ".ps", ".pict", ".pcx", ".tga", ".dds", ".exr", ".hdr", ".pbm", ".pgm", ".ppm", ".pnm", ".xpm", ".xbm", ".cur", ".ani", ".wbmp", ".apng", ".mng", ".jng", ".jp2", ".j2c", ".j2k", ".jpc", ".jpm", ".jpt", ".dcx", ".mtv", ".sgi", ".sun", ".ras", ".vicar", ".viff", ".xv", ".fits", ".fts", ".pal", ".uyvy", ".yuv", ".gray", ".cmyk", ".cin", ".dpx", ".fl32", ".rla", ".rle", ".sct", ".pix", ".al", ".ipl", ".miff", ".mpc", ".mvg", ".palm", ".pdb", ".picon", ".pocketmod", ".psb", ".ptif", ".qoi", ".sf3", ".six", ".sixel", ".vda", ".vst", ".wpg", ".x3f", ".xps", ".fff", ".mos", ".mef", ".mrw", ".mdc", ".dcm", ".dicom", ".ora", ".pdfa", ".eps2", ".eps3", ".ept", ".ept2", ".ept3", ".epdf"]
 
 
 
