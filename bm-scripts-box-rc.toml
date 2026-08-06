@@ -4,7 +4,7 @@
 id = "92c926c7-7450-4503-bbaa-2a5b635eedd7"
 name = "图片格式转换"
 desc = "基于 ImageMagick 的图片格式转换器 | 支持 200+ 格式互转（含 WEBP/AVIF/HEIC 等现代格式），可自定义输出目录和图片质量（0-100），右键菜单一键转换"
-version = "1.2.0"
+version = "1.3.0"
 icon = "./imgs/img.png"
 
 [bmscriptsbox.runtime]
@@ -12,7 +12,7 @@ language = "python"
 language_version = ">=3.8"
 entry = "main.py"
 terminal = "inverse"
-binaries = [{name = "imagemagick"}]
+binaries = [{name = "imagemagick"},{name = "webview-cli"}]
 
 [bmscriptsbox.triggers.context_menu]
 enabled = true
