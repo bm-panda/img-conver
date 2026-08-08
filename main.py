@@ -1,8 +1,7 @@
 """
 图片格式转换 - 支持多种图片格式互转
-支持格式: PNG | JPEG | WEBP | BMP | GIF | ICO | TIFF
+支持格式: PNG | JPEG | WEBP | BMP | GIF | ICO | TIFF 等 200+ 种
 """
-
 import json
 import os
 import shutil
@@ -10,9 +9,14 @@ import subprocess
 import sys
 import tempfile
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import List
+
+# ── 路径与模板 ──
+BASE_DIR = Path(__file__).parent
+CONFIG_PATH = BASE_DIR / "config.json"
+CONFIG_TEMPLATE = BASE_DIR / "config.html"
+APP_DATA_MARKER = "/*__APP_DATA__*/"
 
 ALL_WRITE_FORMATS = [
     # 最常用
@@ -57,44 +61,52 @@ DEFAULT_CONFIG = {
     "quality": 85,
 }
 
-TEMPLATE_PATH = Path(__file__).parent / "config.html"
-CONFIG_PATH = Path(__file__).parent / "config.json"
-
-# 模板里这个占位符会被替换为 `const APP_DATA = {...};`
-APP_DATA_MARKER = "/*__APP_DATA__*/"
+# 右键可选的图片扩展名（与 bm-scripts-box-rc.toml 的 filters 一致；
+# ALL_WRITE_FORMATS 派生 + 仅可输入的相机/文档格式补充）
+IMAGE_EXTS = {"." + f for f in ALL_WRITE_FORMATS} | {
+    ".cr3", ".rw2", ".xcf", ".pict", ".ani", ".rla", ".sct", ".pix", ".al",
+    ".ipl", ".x3f", ".xps", ".fff", ".mos", ".mef", ".mrw", ".mdc",
+    ".dcm", ".dicom", ".ora",
+}
 
 
 class ImageConverter:
-    """图片格式转换器(基于 ImageMagick)"""
+    """图片格式转换器（基于 ImageMagick），承载通用 subprocess 执行，只产数据。"""
 
-    def __init__(self, images: List[str], output_dir: str = "", quality: int = 85, output_format: str = "PNG"):
-        """
-        初始化转换器
+    @staticmethod
+    def _run(cmd, **kw):
+        """执行命令，默认隐藏控制台窗口、按 UTF-8 容错解码。"""
+        kw.setdefault("creationflags", getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        kw.setdefault("encoding", "utf-8")
+        return subprocess.run(cmd, text=True, errors="replace", **kw)
 
-        Args:
-            images: 图片路径列表
-            output_dir: 输出目录（为空则保存到原图目录）
-            quality: 图片质量 (1-100)
-            output_format: 输出格式 (PNG/JPG/WEBP等)
-        """
-        self.images = images
-        self.output_dir = output_dir or ""
-        self.quality = max(1, min(100, quality))  # 限制范围
-        self.output_format = output_format.strip().lstrip(".").upper()
+    @staticmethod
+    def _require_binaries():
+        """校验 magick，缺则直接报错（供 Cli 开局预检）。"""
+        if not shutil.which("magick"):
+            raise FileNotFoundError(
+                "未找到 ImageMagick（magick 命令），请安装并加入环境变量 PATH（https://imagemagick.org/script/download.php）")
 
+    def __init__(self, images, config):
+        """images: 图片文件路径列表；config: 配置 dict（见 DEFAULT_CONFIG）。"""
+        self.images = [i for i in images if Path(i).exists()]
+        c = config
+
+        self.output_dir = str(c.get("output_dir") or "").strip()
+        self.output_format = str(c.get("format") or "png").strip().lstrip(".").upper()
         if self.output_format.lower() not in ALL_WRITE_FORMATS:
             raise ValueError(f"不支持的格式：{self.output_format}，支持：{len(ALL_WRITE_FORMATS)} 种格式")
 
-        self._magick = shutil.which("magick")
-        if not self._magick:
-            raise FileNotFoundError("未找到 ImageMagick（magick 命令），请确认已安装并在环境变量中")
+        self.quality = max(1, min(100, int(c.get("quality", 85))))
 
-        # 创建输出目录
+        self._require_binaries()
+        self._magick = shutil.which("magick")
+
         if self.output_dir:
             os.makedirs(self.output_dir, exist_ok=True)
 
     def _get_output_path(self, input_path: str) -> str:
-        """生成输出文件路径"""
+        """生成输出文件路径；输出到原图目录时加 _converted 后缀避免覆盖原文件"""
         stem = Path(input_path).stem
         ext = self.output_format.lower()
         if self.output_format == "JPEG":
@@ -103,61 +115,45 @@ class ImageConverter:
         if self.output_dir:
             return os.path.join(self.output_dir, f"{stem}.{ext}")
         else:
-            # 输出到原图目录
             parent = Path(input_path).parent
             return os.path.join(parent, f"{stem}_converted.{ext}")
 
-    def _convert_single(self, image_path: str) -> tuple:
-        """转换单张图片"""
+    def _convert_single(self, image_path: str, on_start=None) -> tuple:
+        """转换单张图片，返回 (路径, 状态, 信息)，状态: success/failed。"""
         try:
             output_path = self._get_output_path(image_path)
+
+            if on_start:
+                on_start(image_path)
+
             cmd = [self._magick, str(image_path)]
             if self.output_format in ("JPG", "JPEG", "WEBP"):
                 cmd += ["-quality", str(self.quality)]
             if self.output_format in ("JPG", "JPEG"):
+                # 透明通道 JPEG 不支持，自动铺白底
                 cmd += ["-background", "white", "-alpha", "remove", "-alpha", "off"]
             cmd.append(output_path)
 
-            proc = subprocess.run(
-                cmd, capture_output=True, text=True, errors="replace",
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-            )
+            proc = self._run(cmd, capture_output=True)
             if proc.returncode != 0:
-                return image_path, False, (proc.stderr or "转换失败").strip()
-            return image_path, True, output_path
+                return image_path, "failed", (proc.stderr or "转换失败").strip()
+            return image_path, "success", output_path
 
         except Exception as e:
-            return image_path, False, str(e)
+            return image_path, "failed", str(e)
 
-    def convert(self, max_workers: int = 4, progress_callback=None) -> dict:
-        """
-        批量转换图片
+    def convert(self, on_start=None, on_done=None) -> dict:
+        """顺序转换全部图片，回调供 Cli 展示；返回分组结果 dict。"""
+        results = {"success": [], "failed": [], "total": len(self.images)}
 
-        Args:
-            max_workers: 并发线程数
-            progress_callback: 进度回调函数，接收 (当前进度, 总数)
-
-        Returns:
-            dict: 转换结果统计
-        """
-        total = len(self.images)
-        results = {"success": [], "failed": [], "total": total}
-
-        if total == 0:
-            return results
-
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = {executor.submit(self._convert_single, path): path for path in self.images}
-
-            for idx, future in enumerate(as_completed(futures), 1):
-                path, success, info = future.result()
-                if success:
-                    results["success"].append((path, info))
-                else:
-                    results["failed"].append((path, info))
-
-                if progress_callback:
-                    progress_callback(idx, total)
+        for path in self.images:
+            path, status, info = self._convert_single(path, on_start=on_start)
+            if status == "success":
+                results["success"].append((path, info))
+            else:
+                results["failed"].append((path, info))
+            if on_done:
+                on_done(path, status, info)
 
         return results
 
@@ -172,32 +168,33 @@ class ImageConverter:
         return f"{size:.1f} TB"
 
 
-class App:
-    """应用入口：配置窗口、配置读写、路径解析与 CLI 转换。"""
+class Gui:
+    """webview-cli 配置窗口（含配置的读写与校验）。"""
 
-    def __init__(self, config_path: Path = CONFIG_PATH):
-        self.config_path = config_path
-        self.config = self.load_config()
+    @staticmethod
+    def _render(data):
+        """读取 HTML 模板并注入 APP_DATA（常量单一来源在 Python）。"""
+        payload = json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
+        html = CONFIG_TEMPLATE.read_text(encoding="utf-8")
+        return html.replace(APP_DATA_MARKER, f"const APP_DATA = {payload};")
 
-    # ── 配置读写 ──
-    def load_config(self) -> dict:
-        """读取配置文件，不存在或格式错误则返回默认配置。"""
-        config = dict(DEFAULT_CONFIG)
-        if not self.config_path.exists():
-            return config
-        try:
-            with open(self.config_path, "r", encoding="utf-8") as f:
-                return {**config, **json.load(f)}
-        except (json.JSONDecodeError, ValueError) as e:
-            print(f"配置文件格式错误：{e}，使用默认配置")
-            return config
+    @staticmethod
+    def _webview_bin():
+        webview = shutil.which("webview-cli") or shutil.which("webview")
+        if not webview:
+            raise FileNotFoundError(
+                "未找到 webview-cli，请确认已安装并加入 PATH\n"
+                "https://github.com/just-be-dev/webview-cli"
+            )
+        return webview
 
-    def _validate_saved(self, data):
-        """对页面返回的配置做二次校验（镜像 HTML 里的 JS 规则）。"""
+    @staticmethod
+    def _validate(data):
+        """校验配置窗口返回的数据（镜像 HTML 里的 JS 规则），返回规范化后的 dict。"""
         if not isinstance(data, dict):
             raise ValueError("返回的数据格式无效")
 
-        fmt = str(data.get("format", "") or "").strip().lstrip(".").lower()
+        fmt = str(data.get("format") or "").strip().lstrip(".").lower()
         if fmt not in ALL_WRITE_FORMATS:
             raise ValueError(f"不支持的输出格式：{fmt}（支持 {len(ALL_WRITE_FORMATS)} 种）")
         data["format"] = fmt  # 归一化后落盘
@@ -210,141 +207,226 @@ class App:
             raise ValueError("图片质量必须在 1-100 之间")
         data["quality"] = q
 
-    def _write_config(self, data) -> Path:
-        with open(self.config_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-        return self.config_path
+        data["output_dir"] = str(data.get("output_dir") or "").strip()
+        # 补齐默认字段，保证 config.json 全字段、下游解析安全
+        for k, v in DEFAULT_CONFIG.items():
+            if k not in data:
+                data[k] = v
+        return data
 
-    # ── 配置窗口 ──
-    def _render_html(self, config) -> str:
-        """读取 HTML 模板并注入 APP_DATA（常量单一来源在 Python）。"""
-        data = {
-            "saved": config,
-            "DEFAULTS": DEFAULT_CONFIG,
-            "ALL_WRITE_FORMATS": ALL_WRITE_FORMATS,
-        }
-        payload = json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
-        html = TEMPLATE_PATH.read_text(encoding="utf-8")
-        return html.replace(APP_DATA_MARKER, f"const APP_DATA = {payload};")
-
-    def _spawn_webview(self, base_cmd, html):
-        """先尝试 stdin 管道传入 HTML；失败则回退到临时 HTML 文件。
-
-        注意 webview 的输入优先级：非空 stdin 优先于位置参数。
-        """
-        common = dict(
-            capture_output=True, text=True, encoding="utf-8", errors="replace",
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
+    @staticmethod
+    def load_config():
+        """读取配置；缺失/损坏/非法返回 None（触发首次引导）。"""
         try:
-            return subprocess.run([*base_cmd], input=html, **common)
+            data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        if not isinstance(data, dict):
+            return None
+        return data if data.get("format") in ALL_WRITE_FORMATS else None
+
+    @staticmethod
+    def save_config(data):
+        CONFIG_PATH.write_text(
+            json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+
+    def ask(self):
+        """打开配置窗口，返回校验后的配置 dict；取消/出错返回 None。"""
+        webview = self._webview_bin()
+        data = {"saved": self.load_config() or {},
+                "DEFAULTS": DEFAULT_CONFIG,
+                "ALL_WRITE_FORMATS": ALL_WRITE_FORMATS}
+        html = self._render(data)
+        cmd = [webview, "--title", "图片格式转换 - 配置窗口", "--width", "460", "--height", "640"]
+        try:
+            proc = ImageConverter._run(cmd, input=html, capture_output=True)
         except (OSError, ValueError):
-            fd, path = tempfile.mkstemp(suffix=".html", prefix="image-format-config-")
+            # stdin 管道不可用时回退到临时 HTML 文件
+            fd, path = tempfile.mkstemp(suffix=".html", prefix="image-format-webview-")
             try:
                 with os.fdopen(fd, "w", encoding="utf-8") as f:
                     f.write(html)
-                return subprocess.run([*base_cmd, path], input="", **common)
+                proc = ImageConverter._run(cmd + [path], input="", capture_output=True)
             finally:
                 try:
                     os.remove(path)
                 except OSError:
                     pass
+        if proc.returncode:
+            if proc.returncode != 2 and (proc.stderr or "").strip():
+                print((proc.stderr or "").strip())
+            return None  # 取消(2) / 出错
+        try:
+            payload = json.loads(proc.stdout)
+        except ValueError:
+            print("配置窗口返回的数据无法解析")
+            return None
+        try:
+            return self._validate(payload)
+        except (ValueError, TypeError) as e:
+            print(f"配置校验失败：{e}")
+            return None
 
-    def run_config_window(self) -> bool:
-        """打开 HTML 配置窗口。返回 True 表示已保存配置，False 表示取消/出错。"""
-        webview = shutil.which("webview-cli") or shutil.which("webview")
-        if not webview:
-            raise FileNotFoundError(
-                "未找到 webview-cli，请确认已安装并加入 PATH\n"
-                "https://github.com/just-be-dev/webview-cli"
-            )
 
-        html = self._render_html(self.config)
-        base_cmd = [webview, "--title", "图片格式转换 - 配置窗口", "--width", "460", "--height", "640"]
-        proc = self._spawn_webview(base_cmd, html)
+class Cli:
+    """批处理命令行流程（含盒子参数解析与输出编码修复）。"""
 
-        if proc.returncode == 0:
+    @staticmethod
+    def _fix_encoding():
+        # 统一输出编码，避免 GBK 控制台下 emoji/中文报错（盒子环境已设 PYTHONUTF8=1）
+        for _s in (sys.stdout, sys.stderr):
             try:
-                data = json.loads(proc.stdout)
-            except ValueError as e:
-                print(f"配置窗口返回的数据无法解析：{e}")
-                return False
-            try:
-                self._validate_saved(data)
-            except (ValueError, TypeError) as e:
-                print(f"配置校验失败：{e}")
-                return False
-            self._write_config(data)
-            self.config = data
-            return True
-        elif proc.returncode == 2:
-            return False  # 用户直接关窗 = 取消
-        else:
-            # reject(1) / 超时(3) / 用法错误(64)
-            msg = (proc.stderr or "").strip()
-            if msg:
-                print(msg)
-            return False
+                _s.reconfigure(encoding="utf-8", errors="replace")
+            except (AttributeError, ValueError):
+                pass
 
-    # ── 文件路径 ──
-    def get_path(self, param_path) -> List[str]:
-        """从参数 JSON 中提取存在的目标图片路径。"""
-        if not param_path or not Path(param_path).exists():
+    @staticmethod
+    def _dw(text):
+        """近似显示宽度：CJK/全角/emoji 计 2，其余计 1（横幅自适应宽度用）。"""
+        return sum(2 if ord(ch) > 0x2E7F else 1 for ch in text)
+
+    @staticmethod
+    def _version():
+        try:
+            for line in (BASE_DIR / "bm-scripts-box-rc.toml").read_text(encoding="utf-8").splitlines():
+                if line.strip().startswith("version"):
+                    return line.split("=", 1)[1].strip().strip('"')
+        except OSError:
+            pass
+        return ""
+
+    @staticmethod
+    def _title():
+        v = Cli._version()
+        return f"🖼️ 图片格式转换{(' v' + v) if v else ''} · 200+ 格式互转"
+
+    @staticmethod
+    def _banner(text):
+        w = Cli._dw(text) + 4
+        bar = "─" * w
+        print("┌" + bar + "┐")
+        print("│  " + text + "  │")
+        print("└" + bar + "┘")
+
+    @staticmethod
+    def _section(title):
+        print(f"── {title} " + "─" * 22)
+
+    @staticmethod
+    def get_path(param_path):
+        """解析盒子传入的 JSON 参数文件，返回存在的图片路径列表。"""
+        if not (param_path and Path(param_path).exists()):
             return []
-        with open(param_path, "r", encoding="utf-8") as f:
-            params = json.load(f)
+        try:
+            with open(param_path, "r", encoding="utf-8") as f:
+                params = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            return []
         raw = params.get("data", {}).get("target_paths", [])
         return [p for p in raw if Path(p).exists()]
 
-    # ── CLI ──
-    def run_cli(self, paths: list) -> None:
-        """命令行转换：转换图片、打印结果、倒计时退出。"""
-        print("-" * 50)
-        print('图片格式转换')
-        print("-" * 50)
-        converter = ImageConverter(
-            images=paths,
-            output_dir=self.config["output_dir"],
-            quality=int(self.config["quality"]),
-            output_format=self.config["format"],
-        )
+    def _config_summary(self, config):
+        """转换参数摘要（配置分节说明用，两行）。"""
+        line1 = f"🖼️ 输出 {config.get('format')} · 质量 {config.get('quality')}"
+        out = config.get("output_dir") or "原图所在目录"
+        return f"{line1}\n  📁 输出目录 {out}"
 
-        def show_progress(current, total):
-            print(f"\r进度：{current}/{total} ({current / total * 100:.1f}%)", end="")
+    def run(self, paths):
+        """批处理主流程：扫描 → 配置 → 处理 → 结果 → 倒计时退出。"""
+        Cli._banner(Cli._title())
 
-        result = converter.convert(max_workers=4, progress_callback=show_progress)
-        print(f"\n\n✅ 成功：{len(result['success'])} 张")
-        for path, output in result["success"]:
-            print(f"   {os.path.basename(path)} → {os.path.basename(output)}")
+        images, skipped = [], []
+        for p in paths:
+            if Path(p).suffix.lower() in IMAGE_EXTS:
+                images.append(p)
+            else:
+                skipped.append(p)
+        if skipped:
+            self._section("扫描")
+            for p in skipped:
+                print(f"  ⏭️ 忽略非图片: {Path(p).name}")
 
-        if result["failed"]:
-            print(f"\n❌ 失败：{len(result['failed'])} 张")
-            for path, error in result["failed"]:
-                print(f"   {os.path.basename(path)}：{error}")
+        if not images:
+            print("  ❌ 未选择有效的图片文件")
+            self._exit()
+            return
 
-        # ── 倒计时 + 按键退出 ──
-        print("\n" + "-" * 50)
-        print("按任意键立即退出，或等待倒计时自动退出")
-
-        # 倒计时
-        for i in range(5, 0, -1):
-            print(f"\r⏳ {i} 秒后自动退出... (按任意键退出)", end="")
-            time.sleep(1)
-        print("\r👋 已退出")
-        sys.exit(0)
-
-    def run(self) -> None:
-        """应用入口：带参数走 CLI 转换，无参数打开配置窗口。"""
-        param_path = sys.argv[1] if len(sys.argv) > 1 else None
-        if param_path:
-            paths = self.get_path(param_path)
-            self.run_cli(paths)
+        self._section("配置")
+        config = Gui.load_config()
+        if config is None:
+            print("  📋 首次使用，请配置转换参数...")
+            config = Gui().ask()
+            if config is None:
+                print("  ❌ 未获取到配置，已取消转换")
+                self._exit()
+                return
+            Gui.save_config(config)
+            print("  ✅ 配置已保存")
         else:
-            self.run_config_window()
+            print("  💾 使用已保存的配置")
+        print(f"  {self._config_summary(config)}")
+
+        self._section("处理")
+        total = len(images)
+        started = [0]
+
+        def on_start(path):
+            started[0] += 1
+            print(f"  ▶ ({started[0]}/{total}) 正在转换: {Path(path).name}")
+
+        def on_done(path, status, info):
+            name = Path(path).name
+            if status == "success":
+                size = ImageConverter.get_file_size(info)
+                print(f"  ✅ {name} → {Path(info).name}（{size}）")
+            else:
+                print(f"  ❌ {name}  {(info or '未知错误').strip().splitlines()[0]}")
+
+        converter = ImageConverter(images, config)
+        result = converter.convert(on_start=on_start, on_done=on_done)
+
+        self._section("结果")
+        parts = [f"✅ 成功 {len(result['success'])} 张"]
+        if result["failed"]:
+            parts.append(f"❌ 失败 {len(result['failed'])} 张")
+        print("  " + " · ".join(parts))
+        self._exit()
+
+    @staticmethod
+    def _exit():
+        width, total = 10, 5
+        for i in range(total, 0, -1):
+            filled = round(width * (total - i + 1) / total)
+            bar = "█" * filled + "░" * (width - filled)
+            print(f"\r  ⏳ {i}s {bar}  按任意键立即退出", end="")
+            time.sleep(1)
+        print("\r" + " " * 60, end="\r")
+        print("  👋 已退出")
+        sys.exit(0)
 
 
 def main():
-    App().run()
+    Cli._fix_encoding()                      # 先修编码，再打印任何东西
+    param_path = sys.argv[1] if len(sys.argv) > 1 else None
+    try:
+        if param_path:                        # 盒子传入 JSON 参数 → 批处理
+            paths = Cli.get_path(param_path)
+            if not paths:
+                print("未获取到有效的文件路径")
+                time.sleep(2)
+            else:
+                Cli().run(paths)
+        else:                                 # 无参 → 打开配置窗口
+            Cli._banner(Cli._title())
+            config = Gui().ask()
+            if config is not None:
+                Gui.save_config(config)
+            print(("  ✅ 配置已保存" if config else "  未保存配置") + "\n")
+            time.sleep(2)
+    except FileNotFoundError as e:            # 缺二进制/webview → 中文报错，停留 3 秒
+        print(f"❌ {e}")
+        time.sleep(3)
 
 
 if __name__ == "__main__":
