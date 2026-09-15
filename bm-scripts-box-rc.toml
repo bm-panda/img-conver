@@ -3,16 +3,16 @@
 [bmscriptsbox.info]
 id = "92c926c7-7450-4503-bbaa-2a5b635eedd7"
 name = "图片格式转换"
-desc = "基于 ImageMagick 的图片格式转换器 | 支持 200+ 格式互转（含 WEBP/AVIF/HEIC 等现代格式），可自定义输出目录和图片质量（0-100），右键菜单一键转换"
-version = "1.4.0"
+desc = "图片格式转换 | 基于 ImageMagick 的 200+ 图片格式互转（PNG/JPEG/WEBP/AVIF/HEIC/TIFF 等），支持批量处理、自定义输出目录、图片质量调节，可定时任务与脚本联动调用 | 一键输出转换图片"
+version = "3.0.0"
 icon = "./imgs/img.png"
 
 [bmscriptsbox.runtime]
 language = "python"
 language_version = ">=3.8"
 entry = "main.py"
-terminal = "inverse"
-binaries = [{name = "imagemagick"},{name = "webview-cli"}]
+terminal = "always"
+binaries = [{name = "imagemagick"}]
 
 [bmscriptsbox.triggers.context_menu]
 enabled = true
@@ -26,8 +26,67 @@ filters = [".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".ico", ".tiff", ".
 
 [[bmscriptsbox.inputs]]
 name = "target_paths"
-type = "file"
+label = "源文件"
+type = "list"
+pick = "files"
 exts = [".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".ico", ".tiff", ".tif", ".svg", ".pdf", ".psd", ".ai", ".eps", ".avif", ".heic", ".heif", ".jxl", ".raw", ".arw", ".cr2", ".cr3", ".dng", ".nef", ".orf", ".rw2", ".xcf", ".ps", ".pict", ".pcx", ".tga", ".dds", ".exr", ".hdr", ".pbm", ".pgm", ".ppm", ".pnm", ".xpm", ".xbm", ".cur", ".ani", ".wbmp", ".apng", ".mng", ".jng", ".jp2", ".j2c", ".j2k", ".jpc", ".jpm", ".jpt", ".dcx", ".mtv", ".sgi", ".sun", ".ras", ".vicar", ".viff", ".xv", ".fits", ".fts", ".pal", ".uyvy", ".yuv", ".gray", ".cmyk", ".cin", ".dpx", ".fl32", ".rla", ".rle", ".sct", ".pix", ".al", ".ipl", ".miff", ".mpc", ".mvg", ".palm", ".pdb", ".picon", ".pocketmod", ".psb", ".ptif", ".qoi", ".sf3", ".six", ".sixel", ".vda", ".vst", ".wpg", ".x3f", ".xps", ".fff", ".mos", ".mef", ".mrw", ".mdc", ".dcm", ".dicom", ".ora", ".pdfa", ".eps2", ".eps3", ".ept", ".ept2", ".ept3", ".epdf"]
+description = "待转格式的图片路径"
 
+[[bmscriptsbox.params]]
+name = "format"
+label = "输出格式"
+type = "str"
+default = "png"
+choices = [
+  "jpg", "jpeg", "png", "webp", "gif", "bmp", "ico", "tiff", "tif",
+  "svg", "pdf", "psd", "ai", "eps", "pdfa", "svgz",
+  "avif", "jxl", "heic", "heif",
+  "jp2", "j2c", "j2k", "jpc", "jpm", "jpt",
+  "apng", "mng", "jng",
+  "dds", "tga", "pcx", "pvr",
+  "exr", "hdr", "dpx", "cin", "fl32",
+  "raw", "dng", "cr2", "nef", "arw", "orf",
+  "pbm", "pgm", "ppm", "pnm",
+  "xpm", "xbm",
+  "cur", "wbmp",
+  "dcx", "mtv", "sgi", "sun", "ras", "vicar", "viff", "xv",
+  "fits", "fts", "pal", "uyvy", "yuv", "gray", "cmyk",
+  "ps", "epdf", "epi", "epsf", "epsi", "eps2", "eps3",
+  "ept", "ept2", "ept3", "miff", "mpc", "mvg", "palm",
+  "pdb", "picon", "pocketmod", "psb", "ptif", "qoi",
+  "sf3", "six", "sixel", "vda", "vst", "wpg",
+  "bgr", "bgra", "bgro", "cmyka", "graya", "rgba",
+  "rgbo", "rgb", "ycbcr", "ycbcra", "bayer", "bayera",
+  "aai", "art", "avs", "cal", "cals", "cip", "group4",
+  "fax", "g3", "g4", "hrz", "otb", "rle", "rgf",
+  "ubrl", "ubrl6", "uil", "brf", "isobrl", "isobrl6",
+]
+description = "输出格式（200+ 种，ImageMagick 支持）"
 
+[[bmscriptsbox.params]]
+name = "quality"
+label = "图片质量"
+type = "int"
+default = 85
+description = "图片质量 1-100（仅 JPG/WEBP 生效）"
 
+[[bmscriptsbox.params]]
+name = "output_dir"
+label = "输出目录"
+type = "str"
+default = ""
+description = "输出目录，留空则输出到原图所在目录（自动加 _converted 后缀，不覆盖原图）"
+
+[[bmscriptsbox.outputs]]
+name = "output_paths"
+type = "list"
+description = "转换生成的图片文件绝对路径数组"
+
+[bmscriptsbox.node]
+enabled = true
+
+[bmscriptsbox.schedule]
+enabled = true
+
+[bmscriptsbox.params_form]
+enabled = true
